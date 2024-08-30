@@ -2,6 +2,8 @@ package sunyu.demo;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.convert.Convert;
+import cn.hutool.core.date.DatePattern;
+import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
@@ -14,6 +16,7 @@ import io.lettuce.core.cluster.api.StatefulRedisClusterConnection;
 import org.apache.spark.HashPartitioner;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.springframework.context.ApplicationContext;
@@ -77,13 +80,26 @@ public class Main {
         javaSparkContext
                 //读取hdfs文件，读取到 partitions 分区内
                 .textFile(hdfsPath, javaSparkContext.getConf().getInt("spark.executor.instances", 10))
+                //如果内部协议字符串长度超过4000字节，那存不进去数据库，直接抛弃
+                .filter((Function<String, Boolean>) v1 -> {
+                    if (v1.length() < 4000) {
+                        return true;
+                    }
+                    log.error("内部协议长度超过4000字节，数据抛弃 {}", v1);
+                    return false;
+                })
                 //转换成键值对，键是did，值是内部协议字符串
                 .mapPartitionsToPair((PairFlatMapFunction<Iterator<String>, String, String>) stringIterator -> {
                     List<Tuple2<String, String>> l = new ArrayList<>();
                     stringIterator.forEachRemaining(s -> {
                         TreeMap<String, String> m = sdk.parseProtocolString(s);
                         if (MapUtil.isNotEmpty(m) && m.containsKey("3014")) {
-                            l.add(new Tuple2<>(m.get("did"), s));
+                            try {
+                                DateUtil.parse(m.get("3014").toString(), DatePattern.PURE_DATETIME_FORMAT);
+                                l.add(new Tuple2<>(m.get("did"), s));
+                            } catch (Exception e) {
+                                log.error("{} GPS时间有问题 {} 此数据抛弃", m.get("did"), m.get("3014"));
+                            }
                         }
                     });
                     return l;
