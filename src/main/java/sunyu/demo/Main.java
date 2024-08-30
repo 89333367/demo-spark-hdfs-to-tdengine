@@ -3,8 +3,11 @@ package sunyu.demo;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.convert.Convert;
 import cn.hutool.core.date.DatePattern;
+import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.map.MapUtil;
+import cn.hutool.core.thread.ThreadUtil;
+import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -74,9 +77,52 @@ public class Main {
             partitions = Convert.toInt(args[1], 100);
         }
 
-        log.info("读取 {} 文件", hdfsPath);
+        log.info("args参数 {}", JSONUtil.toJsonStr(args));
 
         JavaSparkContext javaSparkContext = new JavaSparkContext(sparkConf);
+        javaSparkContext.parallelize(Arrays.asList(0), 1).foreach((VoidFunction<Integer>) integer -> {
+            //做数据库删除操作，此操作比较耗时
+            DateTime day = DateUtil.parse(DateUtil.parse(ReUtil.getGroup1(".*/spark/farm_can/(\\d{4}/\\d{2}/\\d{2})/.*", hdfsPath)).toString("yyyyMMdd"));
+            log.info("删除v_c和d_p数据开始");
+
+            ThreadUtil.execute(() -> {
+                String sql = StrUtil.format("delete from frequent.v_c where _rowts>='{} 00:00:00' and _rowts<='{} 23:59:59'"
+                        , day.toString(DatePattern.NORM_DATE_FORMAT), day.toString(DatePattern.NORM_DATE_FORMAT));
+                log.info(sql);
+                tdUtil.executeUpdate(sql, 0, null);
+            });
+
+            ThreadUtil.sleep(5000);
+
+            while (true) {
+                String sql = "select count(*) c from performance_schema.perf_queries where sql like 'delete from frequent.v_c %'";
+                if (tdUtil.executeQuery(sql).size() == 0) {
+                    break;
+                }
+                log.info("v_c还未删除完毕");
+                ThreadUtil.sleep(5000);
+            }
+
+            ThreadUtil.execute(() -> {
+                String sql = StrUtil.format("delete from frequent.d_p where _rowts>='{} 00:00:00' and _rowts<='{} 23:59:59'"
+                        , day.toString(DatePattern.NORM_DATE_FORMAT), day.toString(DatePattern.NORM_DATE_FORMAT));
+                log.info(sql);
+                tdUtil.executeUpdate(sql, 0, null);
+            });
+
+            ThreadUtil.sleep(5000);
+
+            while (true) {
+                String sql = "select count(*) c from performance_schema.perf_queries where sql like 'delete from frequent.d_p %'";
+                if (tdUtil.executeQuery(sql).size() == 0) {
+                    break;
+                }
+                log.info("d_p还未删除完毕");
+                ThreadUtil.sleep(5000);
+            }
+
+            log.info("删除v_c和d_p数据结束");
+        });
         javaSparkContext
                 //读取hdfs文件，读取到 partitions 分区内
                 .textFile(hdfsPath, javaSparkContext.getConf().getInt("spark.executor.instances", 10))

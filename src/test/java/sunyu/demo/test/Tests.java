@@ -53,4 +53,12 @@ public class Tests {
     public static boolean isTimeWithinRange(String time, String startTime, String endTime) {
         return time.compareTo(startTime) >= 0 && time.compareTo(endTime) <= 0;
     }
+
+    @Test
+    void t004() {
+        DateTime day = DateTime.now();
+        for (DateTime dateTime : DateUtil.range(DateUtil.beginOfDay(day), DateUtil.endOfDay(day), DateField.HOUR_OF_DAY)) {
+            log.info("{} {}", dateTime, DateUtil.offsetHour(dateTime, 1));
+        }
+    }
 }
