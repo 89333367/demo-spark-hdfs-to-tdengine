@@ -20,7 +20,7 @@ import org.apache.spark.HashPartitioner;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function;
-import org.apache.spark.api.java.function.PairFlatMapFunction;
+import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
@@ -124,34 +124,31 @@ public class Main {
             log.info("删除v_c和d_p数据结束");
         });
         javaSparkContext
-                //读取hdfs文件，读取到 partitions 分区内
-                .textFile(hdfsPath, javaSparkContext.getConf().getInt("spark.executor.instances", 10))
-                //如果内部协议字符串长度超过4000字节，那存不进去数据库，直接抛弃
-                .filter((Function<String, Boolean>) v1 -> {
-                    if (v1.length() < 4000) {
-                        return true;
-                    }
-                    log.error("内部协议长度超过4000字节，数据抛弃 {}", v1);
-                    return false;
-                })
-                //转换成键值对，键是did，值是内部协议字符串
-                .mapPartitionsToPair((PairFlatMapFunction<Iterator<String>, String, String>) stringIterator -> {
-                    List<Tuple2<String, String>> l = new ArrayList<>();
-                    stringIterator.forEachRemaining(s -> {
-                        TreeMap<String, String> m = sdk.parseProtocolString(s);
+                //读取hdfs文件
+                .textFile(hdfsPath)
+                //转换键值对，键是设备号，值是内部协议字符串
+                .mapToPair((PairFunction<String, String, String>) s -> {
+                    if (s.length() < 4000) {
+                        Map<String, String> m = sdk.parseProtocolString(s);
                         if (MapUtil.isNotEmpty(m) && m.containsKey("3014")) {
                             try {
                                 DateUtil.parse(m.get("3014").toString(), DatePattern.PURE_DATETIME_FORMAT);
-                                l.add(new Tuple2<>(m.get("did"), s));
+                                return new Tuple2<>(m.get("did"), s);
                             } catch (Exception e) {
                                 log.error("{} GPS时间有问题 {} 此数据抛弃", m.get("did"), m.get("3014"));
                             }
                         }
-                    });
-                    return l;
+                    } else {
+                        log.error("内部协议长度超过4000字节，数据抛弃 {}", s);
+                    }
+                    return null; // 如果数据不符合条件，则返回null
                 })
-                //根据did进行分组，并且散列到各个分区
-                .groupByKey(new HashPartitioner(partitions))
+                //过滤不符合的数据
+                .filter((Function<Tuple2<String, String>, Boolean>) v1 -> v1 != null)
+                //按照设备号预分区
+                .partitionBy(new HashPartitioner(partitions))
+                //按照设备号分组
+                .groupByKey()
                 //循环分区
                 .foreachPartition((VoidFunction<Iterator<Tuple2<String, Iterable<String>>>>) tuple2Iterator -> {
                     //循环分组
@@ -249,6 +246,7 @@ public class Main {
                             }
                         }
                     });
+                    //等待分区所有sql执行完毕
                     tdUtil.awaitExecution();
                 });
 
