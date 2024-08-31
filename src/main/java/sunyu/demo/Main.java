@@ -40,7 +40,7 @@ public class Main {
     static ApplicationContext applicationContext = new ClassPathXmlApplicationContext("classpath:spring.xml");
     static TDengineUtil tdUtil = TDengineUtil.builder()
             .dataSource(applicationContext.getBean(HikariDataSource.class))
-            .maxPoolSize(1).maxWorkQueue(10).build();
+            .maxPoolSize(10).maxWorkQueue(10).build();
     static RedisUtil redisUtil = RedisUtil.builder().build();
     static StatefulRedisClusterConnection<String, String> cluster = redisUtil
             .cluster(Arrays.stream(props.getStr("spring.redis.cluster.nodes").split(","))

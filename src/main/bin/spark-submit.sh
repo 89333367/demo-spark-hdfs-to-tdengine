@@ -4,7 +4,7 @@ APP_NAME=hdfs-to-tdengine
 APP_VERSION=2024.8.27
 APP_JAR=../lib/demo-spark-hdfs-to-tdengine-1.0.jar
 MAIN_CLASS=sunyu.demo.Main
-FIX=20240819
+FIX=20240817
 
 APP_ID=`yarn application -list |grep ${APP_NAME} |awk '{print $1}'`
 
@@ -37,7 +37,7 @@ spark-submit \
   --conf spark.driver.cores=1 \
   --conf spark.driver.memory=1g \
   --conf spark.driver.maxResultSize=0 \
-  --conf spark.executor.cores=1 \
+  --conf spark.executor.cores=5 \
   --conf spark.executor.instances=10 \
   --conf spark.executor.memory=10g \
   --conf spark.executor.extraJavaOptions="-XX:+UseG1GC" \
@@ -50,5 +50,5 @@ spark-submit \
   --conf spark.streaming.kafka.maxRatePerPartition=100000 \
   --conf spark.streaming.stopGracefullyOnShutdown=true \
   $APP_JAR \
-  /spark/farm_can/2024/08/19/* 30000
+  /spark/farm_can/2024/08/17/* 50000
   # hdfsPath partitions
