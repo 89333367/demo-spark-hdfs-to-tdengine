@@ -145,10 +145,8 @@ public class Main {
                 })
                 //过滤不符合的数据
                 .filter((Function<Tuple2<String, String>, Boolean>) v1 -> v1 != null)
-                //按照设备号预分区
-                .partitionBy(new HashPartitioner(partitions))
                 //按照设备号分组
-                .groupByKey()
+                .groupByKey(new HashPartitioner(partitions))
                 //循环分区
                 .foreachPartition((VoidFunction<Iterator<Tuple2<String, Iterable<String>>>>) tuple2Iterator -> {
                     //循环分组
