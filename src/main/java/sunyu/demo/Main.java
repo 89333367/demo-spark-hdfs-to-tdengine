@@ -16,6 +16,7 @@ import cn.hutool.log.LogFactory;
 import cn.hutool.setting.dialect.Props;
 import com.zaxxer.hikari.HikariDataSource;
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection;
+import org.apache.spark.HashPartitioner;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function;
@@ -25,7 +26,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
 import scala.Tuple2;
 import sunyu.demo.domain.Params3Enum;
-import sunyu.demo.util.DevicePartitioner;
 import sunyu.util.RedisUtil;
 import sunyu.util.TDengineUtil;
 import uml.tech.bigdata.sdkconfig.ProtocolSdk;
@@ -153,7 +153,7 @@ public class Main {
                 //过滤不符合的数据
                 .filter((Function<Tuple2<String, String>, Boolean>) v1 -> v1 != null)
                 //按照设备号预分区
-                .partitionBy(new DevicePartitioner(partitions))
+                .partitionBy(new HashPartitioner(partitions))
                 //按照设备号分组
                 .groupByKey()
                 //循环分区
