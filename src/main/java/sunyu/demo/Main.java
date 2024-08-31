@@ -52,9 +52,10 @@ public class Main {
 
     public static void main(String[] args) {
         // args
-        // hdfsPath partitions
+        // hdfsPath partitions killData
         String hdfsPath;
         int partitions;
+        boolean killData;
 
         SparkConf sparkConf = new SparkConf();
 
@@ -69,60 +70,66 @@ public class Main {
             //hdfsPath = "hdfs://master012:9020/spark/farm_can/2024/08/26/part-000151724731200000";
             hdfsPath = "hdfs://master020:9020/spark/farm_can/2024/08/26/part-000151724731200000";
             partitions = 100;
+            killData = false;
 
             sparkConf.setAppName("local test");
             sparkConf.setMaster("local[*]");
         } else {
             hdfsPath = args[0];
             partitions = Convert.toInt(args[1], 100);
+            killData = Convert.toBool(args[2], false);
         }
 
         log.info("args参数 {}", JSONUtil.toJsonStr(args));
 
         JavaSparkContext javaSparkContext = new JavaSparkContext(sparkConf);
-        javaSparkContext.parallelize(Arrays.asList(0), 1).foreach((VoidFunction<Integer>) integer -> {
-            //做数据库删除操作，此操作比较耗时
-            DateTime day = DateUtil.parse(DateUtil.parse(ReUtil.getGroup1(".*/spark/farm_can/(\\d{4}/\\d{2}/\\d{2})/.*", hdfsPath)).toString("yyyyMMdd"));
-            log.info("删除v_c和d_p数据开始");
 
-            ThreadUtil.execute(() -> {
-                String sql = StrUtil.format("delete from frequent.v_c where _rowts>='{} 00:00:00' and _rowts<='{} 23:59:59'"
-                        , day.toString(DatePattern.NORM_DATE_FORMAT), day.toString(DatePattern.NORM_DATE_FORMAT));
-                log.info(sql);
-                tdUtil.executeUpdate(sql, 0, null);
-            });
+        if (killData) {
+            javaSparkContext.parallelize(Arrays.asList(0), 1).foreach((VoidFunction<Integer>) integer -> {
+                //做数据库删除操作，此操作比较耗时
+                DateTime day = DateUtil.parse(DateUtil.parse(ReUtil.getGroup1(".*/spark/farm_can/(\\d{4}/\\d{2}/\\d{2})/.*", hdfsPath)).toString("yyyyMMdd"));
+                log.info("删除v_c和d_p数据开始");
 
-            ThreadUtil.sleep(5000);
+                ThreadUtil.execute(() -> {
+                    String sql = StrUtil.format("delete from frequent.v_c where _rowts>='{} 00:00:00' and _rowts<='{} 23:59:59'"
+                            , day.toString(DatePattern.NORM_DATE_FORMAT), day.toString(DatePattern.NORM_DATE_FORMAT));
+                    log.info(sql);
+                    tdUtil.executeUpdate(sql, 0, null);
+                });
 
-            while (true) {
-                String sql = "select count(*) c from performance_schema.perf_queries where sql like 'delete from frequent.v_c %'";
-                if (tdUtil.executeQuery(sql).size() == 0) {
-                    break;
-                }
-                log.info("v_c还未删除完毕");
                 ThreadUtil.sleep(5000);
-            }
 
-            ThreadUtil.execute(() -> {
-                String sql = StrUtil.format("delete from frequent.d_p where _rowts>='{} 00:00:00' and _rowts<='{} 23:59:59'"
-                        , day.toString(DatePattern.NORM_DATE_FORMAT), day.toString(DatePattern.NORM_DATE_FORMAT));
-                log.info(sql);
-                tdUtil.executeUpdate(sql, 0, null);
-            });
-
-            ThreadUtil.sleep(5000);
-
-            while (true) {
-                String sql = "select count(*) c from performance_schema.perf_queries where sql like 'delete from frequent.d_p %'";
-                if (tdUtil.executeQuery(sql).size() == 0) {
-                    break;
+                while (true) {
+                    String sql = "select count(*) c from performance_schema.perf_queries where sql like 'delete from frequent.v_c %'";
+                    if (tdUtil.executeQuery(sql).size() == 0) {
+                        break;
+                    }
+                    log.info("v_c还未删除完毕");
+                    ThreadUtil.sleep(5000);
                 }
-                log.info("d_p还未删除完毕");
-                ThreadUtil.sleep(5000);
-            }
 
-            log.info("删除v_c和d_p数据结束");
-        });
+                ThreadUtil.execute(() -> {
+                    String sql = StrUtil.format("delete from frequent.d_p where _rowts>='{} 00:00:00' and _rowts<='{} 23:59:59'"
+                            , day.toString(DatePattern.NORM_DATE_FORMAT), day.toString(DatePattern.NORM_DATE_FORMAT));
+                    log.info(sql);
+                    tdUtil.executeUpdate(sql, 0, null);
+                });
+
+                ThreadUtil.sleep(5000);
+
+                while (true) {
+                    String sql = "select count(*) c from performance_schema.perf_queries where sql like 'delete from frequent.d_p %'";
+                    if (tdUtil.executeQuery(sql).size() == 0) {
+                        break;
+                    }
+                    log.info("d_p还未删除完毕");
+                    ThreadUtil.sleep(5000);
+                }
+
+                log.info("删除v_c和d_p数据结束");
+            });
+        }
+
         javaSparkContext
                 //读取hdfs文件
                 .textFile(hdfsPath)
@@ -145,8 +152,10 @@ public class Main {
                 })
                 //过滤不符合的数据
                 .filter((Function<Tuple2<String, String>, Boolean>) v1 -> v1 != null)
+                //按照设备号预分区
+                .partitionBy(new HashPartitioner(partitions))
                 //按照设备号分组
-                .groupByKey(new HashPartitioner(partitions))
+                .groupByKey()
                 //循环分区
                 .foreachPartition((VoidFunction<Iterator<Tuple2<String, Iterable<String>>>>) tuple2Iterator -> {
                     //循环分组

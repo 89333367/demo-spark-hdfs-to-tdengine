@@ -50,5 +50,5 @@ spark-submit \
   --conf spark.streaming.kafka.maxRatePerPartition=100000 \
   --conf spark.streaming.stopGracefullyOnShutdown=true \
   $APP_JAR \
-  /spark/farm_can/2024/08/16/* 50000
-  # hdfsPath partitions
+  /spark/farm_can/2024/08/16/* 50000 false
+  # hdfsPath partitions killData
