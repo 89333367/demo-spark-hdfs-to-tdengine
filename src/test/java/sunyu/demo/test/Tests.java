@@ -9,6 +9,7 @@ import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import org.junit.jupiter.api.Test;
 import sunyu.demo.Main;
+import uml.tech.bigdata.sdkconfig.ProtocolSdk;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -98,5 +99,27 @@ public class Tests {
         for (DateTime dateTime : CollUtil.reverse(l)) {
             log.info("{}", dateTime);
         }
+    }
+
+    @Test
+    void t008() {
+        ProtocolSdk sdk = new ProtocolSdk("http://192.168.11.8/config.xml");
+        String s = "SUBMIT$7221280432096428032$00000000$REALTIME$TIME:20240808165741,gw:zcby,4040:0,3014:20240808165741,3003:231,3004:55,4025:5,4026:1,5057:WkNGMg==,5056:,4034:_WkNGMg==,4027:770.55,5068:-128.00,5069:0.00,5070:0.00,4038:0.000000,4039:0.000000,5081:0.000000,5082:0.000019,5071:.1.23.202311131040\u0010R300_V3.1.9_0411\u0010AG63_V1_1_5_0111,5072:V1.0.12st.2022.8.1,5073:UM482R3.00Build21877,5074:~";
+        log.info("{}", sdk.parseProtocolString(s));
+
+        log.info("{}", removeNonSpaceInvisibleChars(s));
+    }
+
+
+    public static String removeNonSpaceInvisibleChars(String str) {
+        if (str == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (char c : str.toCharArray()) {
+            // 去掉不可见字符，但是保留空格
+            if (c == ' ' || (!Character.isWhitespace(c) && !Character.isISOControl(c))) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 }

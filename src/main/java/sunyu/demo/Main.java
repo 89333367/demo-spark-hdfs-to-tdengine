@@ -154,18 +154,21 @@ public class Main {
                     .textFile(hdfsPath)
                     //转换键值对，键是设备号，值是内部协议字符串
                     .mapToPair((PairFunction<String, String, String>) s -> {
-                        if (s.length() < 4000) {
-                            Map<String, String> m = sdk.parseProtocolString(s);
-                            if (MapUtil.isNotEmpty(m) && m.containsKey("3014")) {
-                                try {
-                                    DateUtil.parse(m.get("3014").toString(), DatePattern.PURE_DATETIME_FORMAT);
-                                    return new Tuple2<>(m.get("did"), s);
-                                } catch (Exception e) {
-                                    log.error("{} GPS时间有问题 {} 此数据抛弃", m.get("did"), m.get("3014"));
+                        if (s != null) {
+                            String ns = removeNonSpaceInvisibleChars(s);
+                            if (ns.length() < 4000) {
+                                Map<String, String> m = sdk.parseProtocolString(ns);
+                                if (MapUtil.isNotEmpty(m) && m.containsKey("3014")) {
+                                    try {
+                                        DateUtil.parse(m.get("3014").toString(), DatePattern.PURE_DATETIME_FORMAT);
+                                        return new Tuple2<>(m.get("did"), ns);
+                                    } catch (Exception e) {
+                                        log.error("{} GPS时间有问题 {} 此数据抛弃", m.get("did"), m.get("3014"));
+                                    }
                                 }
+                            } else {
+                                log.error("内部协议长度超过4000字节，数据抛弃 {}", ns);
                             }
-                        } else {
-                            log.error("内部协议长度超过4000字节，数据抛弃 {}", s);
                         }
                         return null; // 如果数据不符合条件，则返回null
                     })
@@ -282,6 +285,17 @@ public class Main {
         redisUtil.close();
     }
 
+    private static String removeNonSpaceInvisibleChars(String str) {
+        if (str == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (char c : str.toCharArray()) {
+            // 去掉不可见字符，但是保留空格
+            if (c == ' ' || (!Character.isWhitespace(c) && !Character.isISOControl(c))) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
 
     private static String formatDateTime(String yyyyMMddHHmmss) {
         if (yyyyMMddHHmmss == null || yyyyMMddHHmmss.length() != 14) {

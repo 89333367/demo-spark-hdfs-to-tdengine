@@ -4,7 +4,7 @@ APP_NAME=hdfs-to-tdengine
 APP_VERSION=2024.8.27
 APP_JAR=../lib/demo-spark-hdfs-to-tdengine-1.0.jar
 MAIN_CLASS=sunyu.demo.Main
-FIX=20240810_20240811
+FIX=20240801_20240807
 
 APP_ID=`yarn application -list |grep ${APP_NAME} |awk '{print $1}'`
 
@@ -50,5 +50,5 @@ spark-submit \
   --conf spark.streaming.kafka.maxRatePerPartition=100000 \
   --conf spark.streaming.stopGracefullyOnShutdown=true \
   $APP_JAR \
-  20240810 20240811 30000 true
+  20240801 20240807 30000 true
   # startDay endDay partitions killData
