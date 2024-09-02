@@ -1,5 +1,6 @@
 package sunyu.demo.test;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.DateField;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
@@ -8,6 +9,10 @@ import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import org.junit.jupiter.api.Test;
 import sunyu.demo.Main;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 public class Tests {
     Log log = LogFactory.get();
@@ -59,6 +64,39 @@ public class Tests {
         DateTime day = DateTime.now();
         for (DateTime dateTime : DateUtil.range(DateUtil.beginOfDay(day), DateUtil.endOfDay(day), DateField.HOUR_OF_DAY)) {
             log.info("{} {}", dateTime, DateUtil.offsetHour(dateTime, 1));
+        }
+    }
+
+    @Test
+    void t005() {
+        String day = "20240811";
+        DateTime d = DateUtil.parse(day);
+        log.info("{}", d);
+    }
+
+    @Test
+    void t006() {
+        List<String> l = new ArrayList<>();
+        String s = "20240801_20240811";
+        for (String d : s.split("_")) {
+            l.add(d);
+        }
+        CollUtil.sort(l, Comparator.reverseOrder());
+        for (String d : l) {
+            log.info("{}", d);
+        }
+    }
+
+    @Test
+    void t007() {
+        String sDay = "20240811";
+        String eDay = "20240811";
+        List<DateTime> l = new ArrayList<>();
+        for (DateTime dateTime : DateUtil.range(DateUtil.parse(sDay), DateUtil.parse(eDay), DateField.DAY_OF_YEAR)) {
+            l.add(dateTime);
+        }
+        for (DateTime dateTime : CollUtil.reverse(l)) {
+            log.info("{}", dateTime);
         }
     }
 }
