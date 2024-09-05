@@ -38,11 +38,11 @@ spark-submit \
   --files ${RESOURCES_FILES} \
   --conf spark.app.name=${APP_NAME}_${APP_VERSION}_${FIX} \
   --conf spark.driver.cores=1 \
-  --conf spark.driver.memory=4g \
+  --conf spark.driver.memory=2g \
   --conf spark.driver.maxResultSize=0 \
   --conf spark.executor.cores=1 \
-  --conf spark.executor.instances=10 \
-  --conf spark.executor.memory=4g \
+  --conf spark.executor.instances=5 \
+  --conf spark.executor.memory=10g \
   --conf spark.executor.extraJavaOptions="-XX:+UseG1GC" \
   --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
   --conf spark.dynamicAllocation.enabled=false \
