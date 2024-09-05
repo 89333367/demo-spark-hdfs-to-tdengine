@@ -12,6 +12,7 @@ import sunyu.demo.Main;
 import uml.tech.bigdata.sdkconfig.ProtocolSdk;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
@@ -121,5 +122,24 @@ public class Tests {
             }
         }
         return sb.toString();
+    }
+
+
+    @Test
+    void t009() {
+        String[] array1 = {"设备1", "数据1"};
+        String[] array2 = {"设备2", "数据2"};
+
+        String[] mergedArray = mergeArrays(array1, array2);
+
+        System.out.println(Arrays.toString(mergedArray));
+    }
+
+    public static String[] mergeArrays(String[] array1, String[] array2) {
+        int totalLength = array1.length + array2.length;
+        String[] result = new String[totalLength];
+        System.arraycopy(array1, 0, result, 0, array1.length);
+        System.arraycopy(array2, 0, result, array1.length, array2.length);
+        return result;
     }
 }

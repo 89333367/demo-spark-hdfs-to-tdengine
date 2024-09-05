@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #yyyyMMdd
-DAY=20240804
+DAY=20240606
 
 APP_NAME=hdfs-to-tdengine
 APP_VERSION=v1.0
@@ -38,11 +38,11 @@ spark-submit \
   --files ${RESOURCES_FILES} \
   --conf spark.app.name=${APP_NAME}_${APP_VERSION}_${FIX} \
   --conf spark.driver.cores=1 \
-  --conf spark.driver.memory=1g \
+  --conf spark.driver.memory=4g \
   --conf spark.driver.maxResultSize=0 \
-  --conf spark.executor.cores=5 \
-  --conf spark.executor.instances=5 \
-  --conf spark.executor.memory=20g \
+  --conf spark.executor.cores=1 \
+  --conf spark.executor.instances=10 \
+  --conf spark.executor.memory=4g \
   --conf spark.executor.extraJavaOptions="-XX:+UseG1GC" \
   --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
   --conf spark.dynamicAllocation.enabled=false \
@@ -53,5 +53,5 @@ spark-submit \
   --conf spark.streaming.kafka.maxRatePerPartition=100000 \
   --conf spark.streaming.stopGracefullyOnShutdown=true \
   $APP_JAR \
-  ${DAY} 30000 false
+  ${DAY} 30000 true
   # day partitions killData

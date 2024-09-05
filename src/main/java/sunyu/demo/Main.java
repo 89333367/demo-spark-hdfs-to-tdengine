@@ -19,7 +19,8 @@ import org.apache.spark.HashPartitioner;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function;
-import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.api.java.function.Function2;
+import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
@@ -142,40 +143,42 @@ public class Main {
         }
 
         javaSparkContext
-                //读取hdfs文件
                 .textFile(hdfsPath)
-                //转换键值对，键是设备号，值是内部协议字符串
-                .mapToPair((PairFunction<String, String, String>) s -> {
-                    if (s != null) {
-                        String ns = removeNonSpaceInvisibleChars(s);
-                        if (ns.length() < 4000) {
-                            Map<String, String> m = sdk.parseProtocolString(ns);
-                            if (MapUtil.isNotEmpty(m) && m.containsKey("3014")) {
-                                try {
-                                    DateUtil.parse(m.get("3014").toString(), DatePattern.PURE_DATETIME_FORMAT);
-                                    return new Tuple2<>(m.get("did"), ns);
-                                } catch (Exception e) {
-                                    log.error("{} GPS时间有问题 {} 此数据抛弃", m.get("did"), m.get("3014"));
+                .mapPartitionsToPair((PairFlatMapFunction<Iterator<String>, String, String>) stringIterator -> {
+                    List<Tuple2<String, String>> l = new ArrayList<>();
+                    stringIterator.forEachRemaining(s -> {
+                        if (StrUtil.isNotBlank(s)) {
+                            String ns = removeNonSpaceInvisibleChars(s);
+                            if (ns.length() < 4000) {
+                                Map<String, String> m = sdk.parseProtocolString(ns);
+                                if (MapUtil.isNotEmpty(m) && m.containsKey("3014")) {
+                                    try {
+                                        DateUtil.parse(m.get("3014").toString(), DatePattern.PURE_DATETIME_FORMAT);
+                                        l.add(new Tuple2<>(m.get("did"), ns));
+                                    } catch (Exception e) {
+                                        log.error("{} GPS时间有问题 {} 此数据抛弃", m.get("did"), m.get("3014"));
+                                    }
                                 }
+                            } else {
+                                log.error("内部协议长度超过4000字节，数据抛弃 {}", ns);
                             }
-                        } else {
-                            log.error("内部协议长度超过4000字节，数据抛弃 {}", ns);
                         }
-                    }
-                    return null; // 如果数据不符合条件，则返回null
+                    });
+                    return l;
                 })
-                //过滤不符合的数据
-                .filter((Function<Tuple2<String, String>, Boolean>) v1 -> v1 != null)
-                //按照设备号预分区
-                .partitionBy(new HashPartitioner(partitions))
-                //按照设备号分组
-                .groupByKey()
-                //循环分区
-                .foreachPartition((VoidFunction<Iterator<Tuple2<String, Iterable<String>>>>) tuple2Iterator -> {
-                    //循环分组
-                    tuple2Iterator.forEachRemaining(stringIterableTuple2 -> {
-                        String did = stringIterableTuple2._1;
-                        Iterable<String> datas = stringIterableTuple2._2;
+                .combineByKey((Function<String, List<String>>) v1 -> new ArrayList<>()
+                        , (Function2<List<String>, String, List<String>>) (v1, v2) -> {
+                            v1.add(v2);
+                            return v1;
+                        }, (Function2<List<String>, List<String>, List<String>>) (v1, v2) -> {
+                            v1.addAll(v2);
+                            return v1;
+                        }
+                        , new HashPartitioner(partitions))
+                .foreachPartition((VoidFunction<Iterator<Tuple2<String, List<String>>>>) tuple2Iterator -> {
+                    tuple2Iterator.forEachRemaining(stringListTuple2 -> {
+                        String did = stringListTuple2._1;
+                        List<String> datas = stringListTuple2._2;
 
                         // todo insert frequent.d_p
                         for (String data : datas) {
@@ -267,13 +270,28 @@ public class Main {
                             }
                         }
                     });
-                    //等待分区所有sql执行完毕
                     tdUtil.awaitExecution();
                 });
 
         javaSparkContext.close();
         tdUtil.close();
         redisUtil.close();
+    }
+
+    private static String[] mergeString(String[] array1, String str) {
+        int length = array1.length;
+        String[] result = new String[length + 1];
+        System.arraycopy(array1, 0, result, 0, length);
+        result[length] = str;
+        return result;
+    }
+
+    private static String[] mergeArrays(String[] array1, String[] array2) {
+        int totalLength = array1.length + array2.length;
+        String[] result = new String[totalLength];
+        System.arraycopy(array1, 0, result, 0, array1.length);
+        System.arraycopy(array2, 0, result, array1.length, array2.length);
+        return result;
     }
 
     private static String removeNonSpaceInvisibleChars(String str) {
