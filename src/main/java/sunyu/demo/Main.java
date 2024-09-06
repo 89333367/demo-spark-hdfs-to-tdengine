@@ -15,22 +15,18 @@ import cn.hutool.log.LogFactory;
 import cn.hutool.setting.dialect.Props;
 import com.zaxxer.hikari.HikariDataSource;
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection;
-import org.apache.spark.HashPartitioner;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.Function;
-import org.apache.spark.api.java.function.Function2;
-import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
-import scala.Tuple2;
 import sunyu.demo.domain.Params3Enum;
 import sunyu.util.RedisUtil;
 import sunyu.util.TDengineUtil;
 import uml.tech.bigdata.sdkconfig.ProtocolSdk;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 public class Main {
@@ -47,15 +43,13 @@ public class Main {
                     .map(s -> s.split(":"))
                     .map(arr -> StrUtil.format("redis://{}:{}", arr[0], arr[1]))
                     .collect(Collectors.toList()));
-    static Map<String, List<JSONObject>> relationsMap = new HashMap<>();
-    static Set<String> readRedisSet = new HashSet<>();
+    static Map<String, List<Map<String, String>>> relationsMap = new HashMap<>();
 
     public static void main(String[] args) {
         // args
-        //# day partitions killData
+        //# day killData
         String hdfsPath;
         String day;
-        int partitions;
         boolean killData;
 
         SparkConf sparkConf = new SparkConf();
@@ -71,7 +65,6 @@ public class Main {
             //hdfsPath = "hdfs://master012:9020/spark/farm_can/2024/08/26/part-000151724731200000";
             //hdfsPath = "hdfs://master020:9020/spark/farm_can/2024/08/26/part-000151724731200000";
             day = "20240826";
-            partitions = 100;
             killData = false;
 
             sparkConf.setAppName("local test");
@@ -79,8 +72,7 @@ public class Main {
         } else {
             //hdfsPath = StrUtil.format("/spark/farm_can/{}/{}/{}/*");
             day = args[0];
-            partitions = Convert.toInt(args[1], 100);
-            killData = Convert.toBool(args[2], false);
+            killData = Convert.toBool(args[1], false);
         }
 
         log.info("args参数 {}", JSONUtil.toJsonStr(args));
@@ -144,154 +136,119 @@ public class Main {
 
         javaSparkContext
                 .textFile(hdfsPath)
-                .mapPartitionsToPair((PairFlatMapFunction<Iterator<String>, String, String>) stringIterator -> {
-                    List<Tuple2<String, String>> l = new ArrayList<>();
-                    stringIterator.forEachRemaining(s -> {
-                        if (StrUtil.isNotBlank(s)) {
-                            String ns = removeNonSpaceInvisibleChars(s);
-                            if (ns.length() < 4000) {
-                                Map<String, String> m = sdk.parseProtocolString(ns);
+                .foreachPartition((VoidFunction<Iterator<String>>) stringIterator -> {
+                    AtomicLong dp = new AtomicLong();
+                    AtomicLong vc = new AtomicLong();
+                    stringIterator.forEachRemaining(protocolString -> {
+                        if (StrUtil.isNotBlank(protocolString)) {
+                            String newProtocolString = removeNonSpaceInvisibleChars(protocolString);
+                            if (newProtocolString.length() < 4000) {
+                                Map<String, String> m = sdk.parseProtocolString(newProtocolString);
                                 if (MapUtil.isNotEmpty(m) && m.containsKey("3014")) {
                                     try {
-                                        DateUtil.parse(m.get("3014").toString(), DatePattern.PURE_DATETIME_FORMAT);
-                                        l.add(new Tuple2<>(m.get("did"), ns));
+                                        String did = m.get("did");
+                                        String gpsTime = m.get("3014");
+                                        DateUtil.parse(gpsTime, DatePattern.PURE_DATETIME_FORMAT);
+
+                                        // todo insert frequent.d_p
+                                        tdUtil.insertRow("frequent", "d_p", StrUtil.format("d_p_{}", did), new HashMap<String, Object>() {{
+                                            put("3014", formatDateTime(gpsTime));//_rowts
+                                            put("protocol", newProtocolString);
+                                            put("did", did);//tag
+                                        }});
+                                        dp.getAndIncrement();
+
+                                        // todo insert frequent.v_c
+                                        String vId = getVid(did, gpsTime);
+                                        if (StrUtil.isNotBlank(vId)) {//找到了vid
+                                            tdUtil.insertRow("frequent", "v_c", StrUtil.format("v_c_{}", vId), new HashMap<String, Object>() {{
+                                                //超插入的列，列名必须存在于上面列的定义中
+                                                put("3014", formatDateTime(m.get("3014")));
+                                                put("TIME", formatDateTime(m.get("TIME")));
+                                                put("did", did);
+                                                put("params3", Params3Enum.valueOf(m.getOrDefault("params3", "ERROR")).getCode());
+                                                put("2204", Convert.toFloat(m.get("2204"), null));
+                                                put("2205", Convert.toDouble(m.get("2205"), null));
+                                                put("2206", Convert.toInt(m.get("2206"), null));
+                                                Integer p2601 = Convert.toInt(m.get("2601"), -1);
+                                                if (p2601 == 0 || p2601 == 1) {
+                                                    put("2601", p2601);
+                                                }
+                                                put("2602", Convert.toDouble(m.get("2602"), null));
+                                                put("2603", Convert.toDouble(m.get("2603"), null));
+                                                Integer p3020 = Convert.toInt(m.get("3020"), -1);
+                                                if (p3020 == 0 || p3020 == 1) {
+                                                    put("3020", p3020);
+                                                }
+                                                put("3040", Convert.toFloat(m.get("3040"), null));
+                                                put("3328", Convert.toDouble(m.get("3328"), null));
+                                                put("4023", Convert.toDouble(m.get("4023"), null));
+                                                Integer p4031 = Convert.toInt(m.get("4031"), -1); // 4031 范围0-2, 其它数值无效
+                                                if (p4031 >= 0 && p4031 <= 2) {
+                                                    put("4031", p4031);
+                                                }
+                                                put("4035", Convert.toDouble(m.get("4035"), null));
+                                                put("4101", Convert.toDouble(m.get("4101"), null));
+                                                put("4106", Convert.toInt(m.get("4106"), null));
+                                                put("4108", Convert.toDouble(m.get("4108"), null));
+                                                put("4118", Convert.toDouble(m.get("4118"), null));
+                                                put("4141", Convert.toInt(m.get("4141"), null));
+                                                put("4163", Convert.toInt(m.get("4163"), null));
+                                                put("4173", Convert.toInt(m.get("4173"), null));
+                                                put("4174", Convert.toDouble(m.get("4174"), null));
+                                                put("4175", Convert.toDouble(m.get("4175"), null));
+                                                put("4177", Convert.toInt(m.get("4177"), null));
+                                                put("4180", Convert.toDouble(m.get("4180"), null));
+                                                put("4181", Convert.toDouble(m.get("4181"), null));
+                                                put("4247", Convert.toInt(m.get("4247"), null));
+                                                put("4319", Convert.toInt(m.get("4319"), null));
+                                                put("4592", Convert.toDouble(m.get("4592"), null));
+                                                put("4609", Convert.toDouble(m.get("4609"), null));
+                                                put("4617", Convert.toDouble(m.get("4617"), null));
+                                                put("4618", Convert.toDouble(m.get("4618"), null));
+                                                put("4619", Convert.toInt(m.get("4619"), null));
+                                                put("4620", Convert.toInt(m.get("4620"), null));
+                                                put("4621", Convert.toInt(m.get("4621"), null));
+                                                put("4623", Convert.toInt(m.get("4623"), null));
+                                                put("4624", Convert.toInt(m.get("4624"), null));
+                                                put("4625", Convert.toInt(m.get("4625"), null));
+                                                put("4655", Convert.toInt(m.get("4655"), null));
+                                                Integer p4862 = Convert.toInt(m.get("4862"), -1);
+                                                if (p4862 == 0 || p4862 == 1) {
+                                                    put("4862", p4862);
+                                                }
+                                                put("4865", Convert.toDouble(m.get("4865"), null));
+                                                put("4905", Convert.toDouble(m.get("4905"), null));
+                                                put("4906", Convert.toDouble(m.get("4906"), null));
+                                                put("4907", Convert.toDouble(m.get("4907"), null));
+                                                put("4955", Convert.toDouble(m.get("4955"), null));
+                                                put("5056", m.get("5056"));
+                                                put("5057", m.get("5057"));
+                                                Integer p5298 = Convert.toInt(m.get("5298"), -1);
+                                                if (p5298 >= 0 && p5298 <= 4) {
+                                                    put("5298", p5298);
+                                                }
+                                                put("5362", Convert.toDouble(m.get("5362"), null));
+                                                put("protocol", newProtocolString);
+                                            }});
+                                            vc.getAndIncrement();
+                                        }
                                     } catch (Exception e) {
                                         log.error("{} GPS时间有问题 {} 此数据抛弃", m.get("did"), m.get("3014"));
                                     }
                                 }
                             } else {
-                                log.error("内部协议长度超过4000字节，数据抛弃 {}", ns);
-                            }
-                        }
-                    });
-                    return l;
-                })
-                .combineByKey((Function<String, List<String>>) v1 -> new ArrayList<>()
-                        , (Function2<List<String>, String, List<String>>) (v1, v2) -> {
-                            v1.add(v2);
-                            return v1;
-                        }, (Function2<List<String>, List<String>, List<String>>) (v1, v2) -> {
-                            v1.addAll(v2);
-                            return v1;
-                        }
-                        , new HashPartitioner(partitions))
-                .foreachPartition((VoidFunction<Iterator<Tuple2<String, List<String>>>>) tuple2Iterator -> {
-                    tuple2Iterator.forEachRemaining(stringListTuple2 -> {
-                        String did = stringListTuple2._1;
-                        List<String> datas = stringListTuple2._2;
-
-                        // todo insert frequent.d_p
-                        for (String data : datas) {
-                            TreeMap<String, String> m = sdk.parseProtocolString(data);
-                            String p3014 = m.get("3014");
-                            tdUtil.insertRow("frequent", "d_p", StrUtil.format("d_p_{}", did), new HashMap<String, Object>() {{
-                                put("3014", formatDateTime(p3014));//_rowts
-                                put("protocol", data);
-                                put("did", did);//tag
-                            }});
-                        }
-
-                        // todo insert frequent.v_c
-                        for (String data : datas) {
-                            TreeMap<String, String> m = sdk.parseProtocolString(data);
-                            String p3014 = m.get("3014");
-                            String vId = getVid(did, p3014, readRedisSet, relationsMap);
-                            if (StrUtil.isNotBlank(vId)) {//找到了vid
-                                tdUtil.insertRow("frequent", "v_c", StrUtil.format("v_c_{}", vId), new HashMap<String, Object>() {{
-                                    //超插入的列，列名必须存在于上面列的定义中
-                                    put("3014", formatDateTime(m.get("3014")));
-                                    put("TIME", formatDateTime(m.get("TIME")));
-                                    put("did", did);
-                                    put("params3", Params3Enum.valueOf(m.getOrDefault("params3", "ERROR")).getCode());
-                                    put("2204", Convert.toFloat(m.get("2204"), null));
-                                    put("2205", Convert.toDouble(m.get("2205"), null));
-                                    put("2206", Convert.toInt(m.get("2206"), null));
-                                    Integer p2601 = Convert.toInt(m.get("2601"), -1);
-                                    if (p2601 == 0 || p2601 == 1) {
-                                        put("2601", p2601);
-                                    }
-                                    put("2602", Convert.toDouble(m.get("2602"), null));
-                                    put("2603", Convert.toDouble(m.get("2603"), null));
-                                    Integer p3020 = Convert.toInt(m.get("3020"), -1);
-                                    if (p3020 == 0 || p3020 == 1) {
-                                        put("3020", p3020);
-                                    }
-                                    put("3040", Convert.toFloat(m.get("3040"), null));
-                                    put("3328", Convert.toDouble(m.get("3328"), null));
-                                    put("4023", Convert.toDouble(m.get("4023"), null));
-                                    Integer p4031 = Convert.toInt(m.get("4031"), -1); // 4031 范围0-2, 其它数值无效
-                                    if (p4031 >= 0 && p4031 <= 2) {
-                                        put("4031", p4031);
-                                    }
-                                    put("4035", Convert.toDouble(m.get("4035"), null));
-                                    put("4101", Convert.toDouble(m.get("4101"), null));
-                                    put("4106", Convert.toInt(m.get("4106"), null));
-                                    put("4108", Convert.toDouble(m.get("4108"), null));
-                                    put("4118", Convert.toDouble(m.get("4118"), null));
-                                    put("4141", Convert.toInt(m.get("4141"), null));
-                                    put("4163", Convert.toInt(m.get("4163"), null));
-                                    put("4173", Convert.toInt(m.get("4173"), null));
-                                    put("4174", Convert.toDouble(m.get("4174"), null));
-                                    put("4175", Convert.toDouble(m.get("4175"), null));
-                                    put("4177", Convert.toInt(m.get("4177"), null));
-                                    put("4180", Convert.toDouble(m.get("4180"), null));
-                                    put("4181", Convert.toDouble(m.get("4181"), null));
-                                    put("4247", Convert.toInt(m.get("4247"), null));
-                                    put("4319", Convert.toInt(m.get("4319"), null));
-                                    put("4592", Convert.toDouble(m.get("4592"), null));
-                                    put("4609", Convert.toDouble(m.get("4609"), null));
-                                    put("4617", Convert.toDouble(m.get("4617"), null));
-                                    put("4618", Convert.toDouble(m.get("4618"), null));
-                                    put("4619", Convert.toInt(m.get("4619"), null));
-                                    put("4620", Convert.toInt(m.get("4620"), null));
-                                    put("4621", Convert.toInt(m.get("4621"), null));
-                                    put("4623", Convert.toInt(m.get("4623"), null));
-                                    put("4624", Convert.toInt(m.get("4624"), null));
-                                    put("4625", Convert.toInt(m.get("4625"), null));
-                                    put("4655", Convert.toInt(m.get("4655"), null));
-                                    Integer p4862 = Convert.toInt(m.get("4862"), -1);
-                                    if (p4862 == 0 || p4862 == 1) {
-                                        put("4862", p4862);
-                                    }
-                                    put("4865", Convert.toDouble(m.get("4865"), null));
-                                    put("4905", Convert.toDouble(m.get("4905"), null));
-                                    put("4906", Convert.toDouble(m.get("4906"), null));
-                                    put("4907", Convert.toDouble(m.get("4907"), null));
-                                    put("4955", Convert.toDouble(m.get("4955"), null));
-                                    put("5056", m.get("5056"));
-                                    put("5057", m.get("5057"));
-                                    Integer p5298 = Convert.toInt(m.get("5298"), -1);
-                                    if (p5298 >= 0 && p5298 <= 4) {
-                                        put("5298", p5298);
-                                    }
-                                    put("5362", Convert.toDouble(m.get("5362"), null));
-                                    put("protocol", data);
-                                }});
+                                log.error("内部协议长度超过4000字节，数据抛弃 {}", newProtocolString);
                             }
                         }
                     });
                     tdUtil.awaitExecution();
+                    log.info("对应关系缓存 {} 个 插入 {} 条dp 插入 {} 条vc", relationsMap.size(), dp.get(), vc.get());
                 });
 
         javaSparkContext.close();
         tdUtil.close();
         redisUtil.close();
-    }
-
-    private static String[] mergeString(String[] array1, String str) {
-        int length = array1.length;
-        String[] result = new String[length + 1];
-        System.arraycopy(array1, 0, result, 0, length);
-        result[length] = str;
-        return result;
-    }
-
-    private static String[] mergeArrays(String[] array1, String[] array2) {
-        int totalLength = array1.length + array2.length;
-        String[] result = new String[totalLength];
-        System.arraycopy(array1, 0, result, 0, array1.length);
-        System.arraycopy(array2, 0, result, array1.length, array2.length);
-        return result;
     }
 
     private static String removeNonSpaceInvisibleChars(String str) {
@@ -320,13 +277,12 @@ public class Main {
         return sb.toString();
     }
 
-    private static String getVid(String did, String p3014, Set<String> readRedisSet, Map<String, List<JSONObject>> relationsMap) {
+    private static String getVid(String did, String gpsTime) {
         String vId = null;
-        List<JSONObject> relations = null;
-        if (readRedisSet.contains(did)) {//如果set里面存在这个did，说明已经在redis查询过对应关系
+        List<Map<String, String>> relations = null;
+        if (relationsMap.containsKey(did)) {
             relations = relationsMap.get(did);
         } else {//在redis中查询对应关系
-            readRedisSet.add(did);//标志查过redis了
             String v = cluster.sync().get(StrUtil.format("p:r:d:{}", did));
             if (JSONUtil.isTypeJSONObject(v)) {
                 /**
@@ -349,19 +305,27 @@ public class Main {
                  * }
                  */
                 //将设备的对应关系存储
-                relations = JSONUtil.parseObj(v).getJSONArray("relations").toList(JSONObject.class);
+                relations = new ArrayList<>();
+                for (JSONObject j : JSONUtil.parseObj(v).getJSONArray("relations").toList(JSONObject.class)) {
+                    relations.add(new HashMap<String, String>() {{
+                        put("startTime", j.getStr("startTime"));
+                        put("endTime", j.getStr("endTime"));
+                        put("vId", j.getStr("vId"));
+                    }});
+                }
                 relationsMap.put(did, relations);
-                log.info("在redis中 {} 找到了 {} 个对应关系", did, relations.size());
+                //log.info("在redis中 {} 找到了 {} 个对应关系 分区缓存大小 {} 已读redis缓存大小 {}", did, relations.size(), relationsMap.size(), readRedisSet.size());
             } else {
-                log.warn("在redis中 {} 找不到对应关系，不会写入frequent.v_c表中", did);
+                relationsMap.put(did, null);//设置null避免下次还要查询redis
+                //log.warn("在redis中 {} 找不到对应关系，不会写入frequent.v_c表中", did);
             }
         }
         if (CollUtil.isNotEmpty(relations)) {
-            for (JSONObject relation : relations) {
-                String startTime = relation.getStr("startTime");
-                String endTime = relation.getStr("endTime");
-                if (p3014.compareTo(startTime) >= 0 && p3014.compareTo(endTime) <= 0) {
-                    vId = relation.getStr("vId");
+            for (Map<String, String> relation : relations) {
+                String startTime = relation.get("startTime");
+                String endTime = relation.get("endTime");
+                if (gpsTime.compareTo(startTime) >= 0 && gpsTime.compareTo(endTime) <= 0) {
+                    vId = relation.get("vId");
                     break;
                 }
             }
