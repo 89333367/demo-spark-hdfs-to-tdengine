@@ -2,6 +2,7 @@ package sunyu.demo;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.convert.Convert;
+import cn.hutool.core.date.DateField;
 import cn.hutool.core.date.DatePattern;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
@@ -51,6 +52,8 @@ public class Main {
         String hdfsPath;
         String day;
         boolean killData;
+        String beginDataTime = "20160101000000";
+        String endDateTime = DateTime.now().offset(DateField.MONTH, 1).toString(DatePattern.PURE_DATETIME_FORMAT);
 
         SparkConf sparkConf = new SparkConf();
 
@@ -80,18 +83,18 @@ public class Main {
         JavaSparkContext javaSparkContext = new JavaSparkContext(sparkConf);
 
         DateTime dateTime = DateUtil.parse(day);
-        log.info("处理日期 {}", dateTime);
+        log.info("准备处理日期 {}", dateTime);
         hdfsPath = StrUtil.format("/spark/farm_can/{}/{}/{}/*", dateTime.toString("yyyy"), dateTime.toString("MM"), dateTime.toString("dd"));
         if (args == null) {
-            hdfsPath = "hdfs://master020:9020" + hdfsPath;
+            hdfsPath = "hdfs://cdh2:8020" + hdfsPath;
         }
-        log.info("处理文件 {}", hdfsPath);
+        log.info("准备处理文件 {}", hdfsPath);
 
         if (killData) {
             log.info("删除数据开始");
             javaSparkContext.parallelize(Arrays.asList(0), 1).foreach((VoidFunction<Integer>) integer -> {
                 //做数据库删除操作，此操作比较耗时
-                log.info("删除v_c和d_p数据开始");
+                log.info("删除v_c和d_p数据开始，如遇60秒超时无需理会，会删除成功");
 
                 ThreadUtil.execute(() -> {
                     String sql = StrUtil.format("delete from frequent.v_c where _rowts>='{} 00:00:00' and _rowts<='{} 23:59:59'"
@@ -100,15 +103,14 @@ public class Main {
                     tdUtil.executeUpdate(sql, 0, null);
                 });
 
-                ThreadUtil.sleep(5000);
+                ThreadUtil.sleep(1000);
 
                 while (true) {
                     String sql = "select count(*) c from performance_schema.perf_queries where sql like 'delete from frequent.v_c %'";
                     if (tdUtil.executeQuery(sql).size() == 0) {
                         break;
                     }
-                    log.info("等待v_c删除完毕");
-                    ThreadUtil.sleep(5000);
+                    ThreadUtil.sleep(1000);
                 }
 
                 ThreadUtil.execute(() -> {
@@ -118,15 +120,14 @@ public class Main {
                     tdUtil.executeUpdate(sql, 0, null);
                 });
 
-                ThreadUtil.sleep(5000);
+                ThreadUtil.sleep(1000);
 
                 while (true) {
                     String sql = "select count(*) c from performance_schema.perf_queries where sql like 'delete from frequent.d_p %'";
                     if (tdUtil.executeQuery(sql).size() == 0) {
                         break;
                     }
-                    log.info("等待d_p删除完毕");
-                    ThreadUtil.sleep(5000);
+                    ThreadUtil.sleep(1000);
                 }
 
                 log.info("删除v_c和d_p数据结束");
@@ -144,97 +145,103 @@ public class Main {
                             String newProtocolString = removeNonSpaceInvisibleChars(protocolString);
                             if (newProtocolString.length() < 4000) {
                                 Map<String, String> m = sdk.parseProtocolString(newProtocolString);
-                                if (MapUtil.isNotEmpty(m) && m.containsKey("3014")) {
+                                if (MapUtil.isNotEmpty(m) && m.containsKey("did") && m.containsKey("3014") && m.containsKey("TIME")) {
                                     try {
                                         String did = m.get("did");
-                                        String gpsTime = m.get("3014");
-                                        DateUtil.parse(gpsTime, DatePattern.PURE_DATETIME_FORMAT);
-
-                                        // todo insert frequent.d_p
-                                        tdUtil.insertRow("frequent", "d_p", StrUtil.format("d_p_{}", did), new HashMap<String, Object>() {{
-                                            put("3014", formatDateTime(gpsTime));//_rowts
-                                            put("protocol", newProtocolString);
-                                            put("did", did);//tag
-                                        }});
-                                        dp.getAndIncrement();
-
-                                        // todo insert frequent.v_c
-                                        String vId = getVid(did, gpsTime);
-                                        if (StrUtil.isNotBlank(vId)) {//找到了vid
-                                            tdUtil.insertRow("frequent", "v_c", StrUtil.format("v_c_{}", vId), new HashMap<String, Object>() {{
-                                                //超插入的列，列名必须存在于上面列的定义中
-                                                put("3014", formatDateTime(m.get("3014")));
-                                                put("TIME", formatDateTime(m.get("TIME")));
-                                                put("did", did);
-                                                put("params3", Params3Enum.valueOf(m.getOrDefault("params3", "ERROR")).getCode());
-                                                put("2204", Convert.toFloat(m.get("2204"), null));
-                                                put("2205", Convert.toDouble(m.get("2205"), null));
-                                                put("2206", Convert.toInt(m.get("2206"), null));
-                                                Integer p2601 = Convert.toInt(m.get("2601"), -1);
-                                                if (p2601 == 0 || p2601 == 1) {
-                                                    put("2601", p2601);
-                                                }
-                                                put("2602", Convert.toDouble(m.get("2602"), null));
-                                                put("2603", Convert.toDouble(m.get("2603"), null));
-                                                Integer p3020 = Convert.toInt(m.get("3020"), -1);
-                                                if (p3020 == 0 || p3020 == 1) {
-                                                    put("3020", p3020);
-                                                }
-                                                put("3040", Convert.toFloat(m.get("3040"), null));
-                                                put("3328", Convert.toDouble(m.get("3328"), null));
-                                                put("4023", Convert.toDouble(m.get("4023"), null));
-                                                Integer p4031 = Convert.toInt(m.get("4031"), -1); // 4031 范围0-2, 其它数值无效
-                                                if (p4031 >= 0 && p4031 <= 2) {
-                                                    put("4031", p4031);
-                                                }
-                                                put("4035", Convert.toDouble(m.get("4035"), null));
-                                                put("4101", Convert.toDouble(m.get("4101"), null));
-                                                put("4106", Convert.toInt(m.get("4106"), null));
-                                                put("4108", Convert.toDouble(m.get("4108"), null));
-                                                put("4118", Convert.toDouble(m.get("4118"), null));
-                                                put("4141", Convert.toInt(m.get("4141"), null));
-                                                put("4163", Convert.toInt(m.get("4163"), null));
-                                                put("4173", Convert.toInt(m.get("4173"), null));
-                                                put("4174", Convert.toDouble(m.get("4174"), null));
-                                                put("4175", Convert.toDouble(m.get("4175"), null));
-                                                put("4177", Convert.toInt(m.get("4177"), null));
-                                                put("4180", Convert.toDouble(m.get("4180"), null));
-                                                put("4181", Convert.toDouble(m.get("4181"), null));
-                                                put("4247", Convert.toInt(m.get("4247"), null));
-                                                put("4319", Convert.toInt(m.get("4319"), null));
-                                                put("4592", Convert.toDouble(m.get("4592"), null));
-                                                put("4609", Convert.toDouble(m.get("4609"), null));
-                                                put("4617", Convert.toDouble(m.get("4617"), null));
-                                                put("4618", Convert.toDouble(m.get("4618"), null));
-                                                put("4619", Convert.toInt(m.get("4619"), null));
-                                                put("4620", Convert.toInt(m.get("4620"), null));
-                                                put("4621", Convert.toInt(m.get("4621"), null));
-                                                put("4623", Convert.toInt(m.get("4623"), null));
-                                                put("4624", Convert.toInt(m.get("4624"), null));
-                                                put("4625", Convert.toInt(m.get("4625"), null));
-                                                put("4655", Convert.toInt(m.get("4655"), null));
-                                                Integer p4862 = Convert.toInt(m.get("4862"), -1);
-                                                if (p4862 == 0 || p4862 == 1) {
-                                                    put("4862", p4862);
-                                                }
-                                                put("4865", Convert.toDouble(m.get("4865"), null));
-                                                put("4905", Convert.toDouble(m.get("4905"), null));
-                                                put("4906", Convert.toDouble(m.get("4906"), null));
-                                                put("4907", Convert.toDouble(m.get("4907"), null));
-                                                put("4955", Convert.toDouble(m.get("4955"), null));
-                                                put("5056", m.get("5056"));
-                                                put("5057", m.get("5057"));
-                                                Integer p5298 = Convert.toInt(m.get("5298"), -1);
-                                                if (p5298 >= 0 && p5298 <= 4) {
-                                                    put("5298", p5298);
-                                                }
-                                                put("5362", Convert.toDouble(m.get("5362"), null));
+                                        DateTime gpsTime = DateUtil.parse(m.get("3014"), DatePattern.PURE_DATETIME_FORMAT);
+                                        DateTime gatewayTime = DateUtil.parse(m.get("TIME"), DatePattern.PURE_DATETIME_FORMAT);
+                                        if (beginDataTime.compareTo(gpsTime.toString(DatePattern.PURE_DATETIME_FORMAT)) <= 0
+                                                && gpsTime.toString(DatePattern.PURE_DATETIME_FORMAT).compareTo(endDateTime) <= 0
+                                                && beginDataTime.compareTo(gatewayTime.toString(DatePattern.PURE_DATETIME_FORMAT)) <= 0
+                                                && gatewayTime.toString(DatePattern.PURE_DATETIME_FORMAT).compareTo(endDateTime) <= 0) {
+                                            // todo insert frequent.d_p
+                                            tdUtil.insertRow("frequent", "d_p", StrUtil.format("d_p_{}", did), new HashMap<String, Object>() {{
+                                                put("3014", gpsTime.toString(DatePattern.NORM_DATETIME_FORMAT));//_rowts
                                                 put("protocol", newProtocolString);
+                                                put("did", did);//tag
                                             }});
-                                            vc.getAndIncrement();
+                                            dp.getAndIncrement();
+
+                                            // todo insert frequent.v_c
+                                            String vId = getVid(did, gpsTime.toString(DatePattern.PURE_DATETIME_FORMAT));
+                                            if (StrUtil.isNotBlank(vId)) {//找到了vid
+                                                tdUtil.insertRow("frequent", "v_c", StrUtil.format("v_c_{}", vId), new HashMap<String, Object>() {{
+                                                    //超插入的列，列名必须存在于上面列的定义中
+                                                    put("3014", gpsTime.toString(DatePattern.NORM_DATETIME_FORMAT));
+                                                    put("TIME", gatewayTime.toString(DatePattern.NORM_DATETIME_FORMAT));
+                                                    put("did", did);
+                                                    put("params3", Params3Enum.valueOf(m.getOrDefault("params3", "ERROR")).getCode());
+                                                    put("2204", Convert.toFloat(m.get("2204"), null));
+                                                    put("2205", Convert.toDouble(m.get("2205"), null));
+                                                    put("2206", Convert.toInt(m.get("2206"), null));
+                                                    Integer p2601 = Convert.toInt(m.get("2601"), -1);
+                                                    if (p2601 == 0 || p2601 == 1) {
+                                                        put("2601", p2601);
+                                                    }
+                                                    put("2602", Convert.toDouble(m.get("2602"), null));
+                                                    put("2603", Convert.toDouble(m.get("2603"), null));
+                                                    Integer p3020 = Convert.toInt(m.get("3020"), -1);
+                                                    if (p3020 == 0 || p3020 == 1) {
+                                                        put("3020", p3020);
+                                                    }
+                                                    put("3040", Convert.toFloat(m.get("3040"), null));
+                                                    put("3328", Convert.toDouble(m.get("3328"), null));
+                                                    put("4023", Convert.toDouble(m.get("4023"), null));
+                                                    Integer p4031 = Convert.toInt(m.get("4031"), -1); // 4031 范围0-2, 其它数值无效
+                                                    if (p4031 >= 0 && p4031 <= 2) {
+                                                        put("4031", p4031);
+                                                    }
+                                                    put("4035", Convert.toDouble(m.get("4035"), null));
+                                                    put("4101", Convert.toDouble(m.get("4101"), null));
+                                                    put("4106", Convert.toInt(m.get("4106"), null));
+                                                    put("4108", Convert.toDouble(m.get("4108"), null));
+                                                    put("4118", Convert.toDouble(m.get("4118"), null));
+                                                    put("4141", Convert.toInt(m.get("4141"), null));
+                                                    put("4163", Convert.toInt(m.get("4163"), null));
+                                                    put("4173", Convert.toInt(m.get("4173"), null));
+                                                    put("4174", Convert.toDouble(m.get("4174"), null));
+                                                    put("4175", Convert.toDouble(m.get("4175"), null));
+                                                    put("4177", Convert.toInt(m.get("4177"), null));
+                                                    put("4180", Convert.toDouble(m.get("4180"), null));
+                                                    put("4181", Convert.toDouble(m.get("4181"), null));
+                                                    put("4247", Convert.toInt(m.get("4247"), null));
+                                                    put("4319", Convert.toInt(m.get("4319"), null));
+                                                    put("4592", Convert.toDouble(m.get("4592"), null));
+                                                    put("4609", Convert.toDouble(m.get("4609"), null));
+                                                    put("4617", Convert.toDouble(m.get("4617"), null));
+                                                    put("4618", Convert.toDouble(m.get("4618"), null));
+                                                    put("4619", Convert.toInt(m.get("4619"), null));
+                                                    put("4620", Convert.toInt(m.get("4620"), null));
+                                                    put("4621", Convert.toInt(m.get("4621"), null));
+                                                    put("4623", Convert.toInt(m.get("4623"), null));
+                                                    put("4624", Convert.toInt(m.get("4624"), null));
+                                                    put("4625", Convert.toInt(m.get("4625"), null));
+                                                    put("4655", Convert.toInt(m.get("4655"), null));
+                                                    Integer p4862 = Convert.toInt(m.get("4862"), -1);
+                                                    if (p4862 == 0 || p4862 == 1) {
+                                                        put("4862", p4862);
+                                                    }
+                                                    put("4865", Convert.toDouble(m.get("4865"), null));
+                                                    put("4905", Convert.toDouble(m.get("4905"), null));
+                                                    put("4906", Convert.toDouble(m.get("4906"), null));
+                                                    put("4907", Convert.toDouble(m.get("4907"), null));
+                                                    put("4955", Convert.toDouble(m.get("4955"), null));
+                                                    put("5056", m.get("5056"));
+                                                    put("5057", m.get("5057"));
+                                                    Integer p5298 = Convert.toInt(m.get("5298"), -1);
+                                                    if (p5298 >= 0 && p5298 <= 4) {
+                                                        put("5298", p5298);
+                                                    }
+                                                    put("5362", Convert.toDouble(m.get("5362"), null));
+                                                    put("protocol", newProtocolString);
+                                                }});
+                                                vc.getAndIncrement();
+                                            }
+                                        } else {
+                                            log.error("{} 超出数据时间范围 3014:{} TIME:{} 此数据抛弃，不予存储", m.get("did"), m.get("3014"), m.get("TIME"));
                                         }
                                     } catch (Exception e) {
-                                        log.error("{} GPS时间有问题 {} 此数据抛弃", m.get("did"), m.get("3014"));
+                                        log.error("{} 时间有问题 3014:{} TIME:{} 此数据抛弃", m.get("did"), m.get("3014"), m.get("TIME"));
                                     }
                                 }
                             } else {
@@ -243,7 +250,7 @@ public class Main {
                         }
                     });
                     tdUtil.awaitExecution();
-                    log.info("对应关系缓存 {} 个 插入 {} 条dp 插入 {} 条vc", relationsMap.size(), dp.get(), vc.get());
+                    log.info("当前分区对应关系缓存 {} 个 插入 {} 条dp 插入 {} 条vc", relationsMap.size(), dp.get(), vc.get());
                 });
 
         javaSparkContext.close();
@@ -263,22 +270,7 @@ public class Main {
         return sb.toString();
     }
 
-    private static String formatDateTime(String yyyyMMddHHmmss) {
-        if (yyyyMMddHHmmss == null || yyyyMMddHHmmss.length() != 14) {
-            throw new IllegalArgumentException("Invalid date format: " + yyyyMMddHHmmss);
-        }
-        StringBuilder sb = new StringBuilder(yyyyMMddHHmmss.length() + 5);
-        sb.append(yyyyMMddHHmmss.substring(0, 4)).append("-")
-                .append(yyyyMMddHHmmss.substring(4, 6)).append("-")
-                .append(yyyyMMddHHmmss.substring(6, 8)).append(" ")
-                .append(yyyyMMddHHmmss.substring(8, 10)).append(":")
-                .append(yyyyMMddHHmmss.substring(10, 12)).append(":")
-                .append(yyyyMMddHHmmss.substring(12, 14));
-        return sb.toString();
-    }
-
-    private static String getVid(String did, String gpsTime) {
-        String vId = null;
+    private static String getVid(String did, String yyyyMMddHHmmss) {
         List<Map<String, String>> relations = null;
         if (relationsMap.containsKey(did)) {
             relations = relationsMap.get(did);
@@ -324,13 +316,12 @@ public class Main {
             for (Map<String, String> relation : relations) {
                 String startTime = relation.get("startTime");
                 String endTime = relation.get("endTime");
-                if (gpsTime.compareTo(startTime) >= 0 && gpsTime.compareTo(endTime) <= 0) {
-                    vId = relation.get("vId");
-                    break;
+                if (startTime.compareTo(yyyyMMddHHmmss) <= 0 && yyyyMMddHHmmss.compareTo(endTime) <= 0) {
+                    return relation.get("vId");
                 }
             }
         }
-        return vId;
+        return null;
     }
 
 }

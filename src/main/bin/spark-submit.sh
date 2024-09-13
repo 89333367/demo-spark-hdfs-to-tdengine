@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #yyyyMMdd
-DAY=20240622
+DAY=20240204
 
 APP_NAME=hdfs-to-tdengine
 APP_VERSION=v1.0
@@ -38,10 +38,10 @@ spark-submit \
   --files ${RESOURCES_FILES} \
   --conf spark.app.name=${APP_NAME}_${APP_VERSION}_${FIX} \
   --conf spark.driver.cores=1 \
-  --conf spark.driver.memory=4g \
+  --conf spark.driver.memory=2g \
   --conf spark.driver.maxResultSize=0 \
   --conf spark.executor.cores=2 \
-  --conf spark.executor.instances=4 \
+  --conf spark.executor.instances=5 \
   --conf spark.executor.memory=8g \
   --conf spark.executor.extraJavaOptions="-XX:+UseG1GC" \
   --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \

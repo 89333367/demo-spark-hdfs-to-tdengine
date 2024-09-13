@@ -142,4 +142,11 @@ public class Tests {
         System.arraycopy(array2, 0, result, array1.length, array2.length);
         return result;
     }
+
+    @Test
+    void t010() {
+        for (DateTime dateTime : DateUtil.range(DateUtil.beginOfDay(DateTime.now()), DateUtil.endOfDay(DateTime.now()), DateField.MINUTE)) {
+            log.info("{}", dateTime.toString("HHmm"));
+        }
+    }
 }
