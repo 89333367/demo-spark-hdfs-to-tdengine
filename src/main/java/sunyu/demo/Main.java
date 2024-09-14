@@ -2,6 +2,7 @@ package sunyu.demo;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.convert.Convert;
+import cn.hutool.core.date.DateField;
 import cn.hutool.core.date.DatePattern;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
@@ -51,8 +52,8 @@ public class Main {
         String hdfsPath;
         String day;
         boolean killData;
-        String beginDataTime = "20160101000000";
-        String endDateTime = "20260101000000";
+        String beginDataTime = DateTime.now().offset(DateField.YEAR, -5).toString(DatePattern.PURE_DATETIME_PATTERN);
+        String endDateTime = DateTime.now().offset(DateField.DAY_OF_YEAR, 1).toString(DatePattern.PURE_DATETIME_PATTERN);
 
         SparkConf sparkConf = new SparkConf();
 
