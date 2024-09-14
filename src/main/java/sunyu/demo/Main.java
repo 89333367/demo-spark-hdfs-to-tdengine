@@ -2,7 +2,6 @@ package sunyu.demo;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.convert.Convert;
-import cn.hutool.core.date.DateField;
 import cn.hutool.core.date.DatePattern;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
@@ -53,7 +52,7 @@ public class Main {
         String day;
         boolean killData;
         String beginDataTime = "20160101000000";
-        String endDateTime = DateTime.now().offset(DateField.MONTH, 1).toString(DatePattern.PURE_DATETIME_FORMAT);
+        String endDateTime = "20260101000000";
 
         SparkConf sparkConf = new SparkConf();
 
