@@ -53,7 +53,7 @@ public class Main {
         String day;
         boolean killData;
         String beginDataTime = DateTime.now().offset(DateField.YEAR, -5).toString(DatePattern.PURE_DATETIME_PATTERN);
-        String endDateTime = DateTime.now().offset(DateField.DAY_OF_YEAR, 1).toString(DatePattern.PURE_DATETIME_PATTERN);
+        String endDateTime = DateTime.now().offset(DateField.MONTH, 1).toString(DatePattern.PURE_DATETIME_PATTERN);
 
         SparkConf sparkConf = new SparkConf();
 

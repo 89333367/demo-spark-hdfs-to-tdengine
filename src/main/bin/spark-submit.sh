@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #yyyyMMdd
-DAY=20240204
+DAY=$1
 
 APP_NAME=hdfs-to-tdengine
 APP_VERSION=v1.0
