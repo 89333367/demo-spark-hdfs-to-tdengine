@@ -107,7 +107,7 @@ public class Main {
 
                 while (true) {
                     String sql = "select count(*) c from performance_schema.perf_queries where sql like 'delete from frequent.v_c %'";
-                    if (tdUtil.executeQuery(sql).size() == 0) {
+                    if (tdUtil.executeQuery(sql, null, 1000 * 30).size() == 0) {
                         break;
                     }
                     ThreadUtil.sleep(1000);
@@ -124,13 +124,16 @@ public class Main {
 
                 while (true) {
                     String sql = "select count(*) c from performance_schema.perf_queries where sql like 'delete from frequent.d_p %'";
-                    if (tdUtil.executeQuery(sql).size() == 0) {
+                    if (tdUtil.executeQuery(sql, null, 1000 * 30).size() == 0) {
                         break;
                     }
                     ThreadUtil.sleep(1000);
                 }
 
                 log.info("删除v_c和d_p数据结束");
+
+                log.info("再等待60秒，避免0x231e问题发生");
+                ThreadUtil.sleep(1000 * 60);
             });
             log.info("删除数据结束");
         }
