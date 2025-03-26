@@ -53,5 +53,5 @@ spark-submit \
   --conf spark.streaming.kafka.maxRatePerPartition=100000 \
   --conf spark.streaming.stopGracefullyOnShutdown=true \
   $APP_JAR \
-  ${DAY} true
-  # day killData
+  /spark/farm_can/2025/03/25/part-000011742958000000
+  # hdfsPath
