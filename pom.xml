@@ -23,7 +23,7 @@
             <artifactId>jackson-databind</artifactId>
             <version>2.4.6.1</version>
         </dependency>
-        <!-- 但是 jackson-databind 太低了 taos-driver 会出问题，这里只能降低taos-driver版本 -->
+        <!-- 但是 jackson-databind 调低后 taos-driver 会出问题，这里只能降低taos-driver版本 -->
         <dependency>
             <groupId>com.taosdata.jdbc</groupId>
             <artifactId>taos-jdbcdriver</artifactId>
