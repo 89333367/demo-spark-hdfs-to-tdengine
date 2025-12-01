@@ -23,11 +23,13 @@ public class Tests {
     @Test
     void testDS() {
         ApplicationContext applicationContext = new ClassPathXmlApplicationContext("classpath:spring.xml");
-        String sql = "select * from db_test.stb_test limit 5";
-        TDengineUtil tdengineUtil = TDengineUtil.builder().dataSource(applicationContext.getBean(HikariDataSource.class)).build();
-        List<Map<String, Object>> rows = tdengineUtil.executeQuery(sql);
+        HikariDataSource datasource = applicationContext.getBean(HikariDataSource.class);
+        log.info("datasource: {}", datasource.getJdbcUrl());
+        TDengineUtil tdUtil = TDengineUtil.builder().dataSource(datasource).setMaxConcurrency(10).build();
+        String sql = "show databases";
+        List<Map<String, Object>> rows = tdUtil.executeQuery(sql);
         log.info("查询结果: {}", rows);
-        tdengineUtil.close();
+        tdUtil.close();
     }
 
 }

@@ -40,9 +40,9 @@ spark-submit \
   --conf spark.driver.cores=1 \
   --conf spark.driver.memory=2g \
   --conf spark.driver.maxResultSize=0 \
-  --conf spark.executor.cores=2 \
-  --conf spark.executor.instances=5 \
-  --conf spark.executor.memory=8g \
+  --conf spark.executor.cores=1 \
+  --conf spark.executor.instances=2 \
+  --conf spark.executor.memory=4g \
   --conf spark.executor.extraJavaOptions="-XX:+UseG1GC" \
   --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
   --conf spark.dynamicAllocation.enabled=false \
@@ -50,8 +50,8 @@ spark-submit \
   --conf spark.scheduler.mode=FIFO \
   --conf spark.streaming.concurrentJobs=1 \
   --conf spark.streaming.backpressure.enabled=false \
-  --conf spark.streaming.kafka.maxRatePerPartition=100000 \
+  --conf spark.streaming.kafka.maxRatePerPartition=10000 \
   --conf spark.streaming.stopGracefullyOnShutdown=true \
   $APP_JAR \
-  /spark/farm_can/2025/03/25/part-000011742958000000
+  /spark/farm_can/2025/11/25/*
   # hdfsPath
