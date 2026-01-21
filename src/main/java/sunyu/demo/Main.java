@@ -12,11 +12,12 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
-import sunyu.util.RedisClusterUtil;
 import sunyu.util.TDengineUtil;
 import uml.tech.bigdata.sdkconfig.ProtocolSdk;
 
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.TreeMap;
 
 public class Main {
@@ -28,9 +29,6 @@ public class Main {
             .dataSource(applicationContext.getBean(HikariDataSource.class))
             .setMaxConcurrency(10)
             .build();
-    static RedisClusterUtil redisClusterUtil = RedisClusterUtil.builder()
-            .nodes(props.getStr("spring.redis.cluster.nodes"))
-            .build();
 
     public static void main(String[] args) {
         String hdfsPath;
@@ -39,16 +37,16 @@ public class Main {
             //端口使用 HDFS的 NameNode 端口
 
             //开发
-            //hdfsPath = "hdfs://cdh1:8020/spark/farm_can/2025/03/25/part-000011742958000000";
+            hdfsPath = "hdfs://cdh1:8020/spark/farm_can/2026/01/21/part-000111768926600000";
             //hdfsPath = "hdfs://cdh2:8020/spark/farm_can/2025/11/22/part-000041763803800000";
 
             //生产
             //hdfsPath = "hdfs://master012:9020/spark/farm_can/2024/08/26/part-000151724731200000";
-            hdfsPath = "hdfs://master020:9020/spark/farm_can/2025/11/30/part-000001764520200000";
+            //hdfsPath = "hdfs://master020:9020/spark/farm_can/2025/11/30/part-000001764520200000";
 
             sparkConf.setAppName("local test");
-            sparkConf.setMaster("local[1]");
-            //sparkConf.setMaster("local[*]");
+            //sparkConf.setMaster("local[1]");
+            sparkConf.setMaster("local[*]");
         } else {
             hdfsPath = args[0];
         }
@@ -64,21 +62,18 @@ public class Main {
                         TreeMap<String, String> m = sdk.parseProtocolString(s);
                         if (MapUtil.isNotEmpty(m) && m.get("3014") != null && m.get("did") != null
                                 && m.get("2601") != null && m.get("2602") != null) {
-                            String did = m.get("did");
+                            //String did = m.get("did");
+                            String did = "test";
                             String gpsTime = DateUtil.parse(m.get("3014")).toString("yyyy-MM-dd HH:mm:ss");
                             log.debug("解析后数据 {} {} {}", gpsTime, did, m);
 
-                            String v = redisClusterUtil.get("p:r:d:" + did);
-                            log.debug("从redis读取数据 {}", v);
-
-                            /* Map<String, Object> row = new HashMap<>();
-                            row.put("c1", DateUtil.parse(m.get("3014")).toString("yyyy-MM-dd HH:mm:ss"));
-                            row.put("c2", m.get("did"));
-                            row.put("c3", m.get("2601"));
-                            row.put("c4", m.get("2602"));
-                            row.put("t1", m.get("did"));
+                            Map<String, Object> row = new HashMap<>();
+                            row.put("3014", DateUtil.parse(m.get("3014")).toString("yyyy-MM-dd HH:mm:ss"));
+                            row.put("did", m.get("did"));
+                            row.put("2601", m.get("2601"));
+                            row.put("2602", m.get("2602"));
                             //异步写入
-                            tdUtil.asyncInsertRow("db_test", "stb_test", m.get("did"), row); */
+                            tdUtil.asyncInsertRow("frequent", "d_p", did, row);
                         }
                     });
                     //等待分区全部写入完毕
